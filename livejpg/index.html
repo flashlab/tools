@@ -1,0 +1,239 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon.ico">
+    <title>动态照片解析</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #f4f4f9;
+            color: #333;
+        }
+
+        header {
+            background-color: #262626;
+            color: white;
+            text-align: center;
+            padding: 20px;
+        }
+
+        h1 {
+            margin: 0;
+        }
+
+        main {
+            margin: 20px;
+            padding: 20px;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        p {
+            line-height: 1.6;
+        }
+
+        label {
+            font-weight: bold;
+            margin-bottom: 8px;
+            display: inline-block;
+        }
+
+        input[type="file"] {
+            padding: 10px;
+            border-radius: 4px;
+            border: 1px solid #ccc;
+        }
+
+        a {
+            margin-top: 10px;
+            color: #4CAF50;
+            text-decoration: none;
+            font-weight: bold;
+        }
+
+        a:hover {
+            text-decoration: underline;
+        }
+
+        #status {
+            font-size: 16px;
+            font-weight: bold;
+        }
+
+        #videoPreview {
+            width: 100%;
+            border-radius: 8px;
+        }
+
+        pre {
+            background-color: #f1f1f1;
+            padding: 10px;
+            border-radius: 4px;
+            font-size: 14px;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+
+<body>
+    <header>
+        <h1>动态照片解析</h1>
+        <p>支持 OPPO/小米/三星/谷歌/华为/荣耀 动态照片解析为静态图片和视频<br>你也可以尝试 <a href='./edit.html' target='_blank'>合成动态照片 (beta)</a></p>
+    </header>
+
+    <main>
+        <p>优先解析XMP元数据，若不存在尝试读取视频文件头。在浏览器本地完成处理，图片不会上传到服务器。</p>
+        <p>更多信息请查看 <a
+                href="https://www.coolapk.com/feed/61209226?shareKey=MmIyMzVjM2M3MTFiNjc1NmE2MWM~&shareUid=765390&shareFrom=com.coolapk.market_14.6.0"
+                target="_blank">酷安图文@橘子Jun</a></p>
+
+        <label for="fileInput">请选择一个动态照片文件 (.jpg)：</label>
+        <input type="file" id="fileInput" accept=".jpg,.jpeg">
+
+        <a id="downloadImage" style="display: none;">下载静态照片</a>
+        <a id="downloadVideo" style="display: none;">下载视频</a>
+
+        <p id="status"></p>
+        <video id="videoPreview" controls style="display: none;"></video>
+        <pre id="videoTip" style="display: none;">如果视频有时长但白屏是浏览器解码不支持，下载后即可播放；如果时长也无法加载是解析异常。</pre>
+        <pre id="xmpInfo"></pre>
+    </main>
+    <script>
+        document.getElementById("fileInput").addEventListener("change", function (event) {
+            const file = event.target.files[0];
+            // 恢复默认界面
+            document.getElementById("status").textContent = "";
+            document.getElementById("downloadImage").style.display = "none";
+            document.getElementById("downloadVideo").style.display = "none";
+            document.getElementById("videoPreview").style.display = "none";
+            document.getElementById("videoTip").style.display = "none";
+            document.getElementById("xmpInfo").textContent = "";
+            if (!file) {
+                document.getElementById("status").textContent = "未选择文件";
+                return;
+            }
+
+            const filename = file.name;
+            if (!filename.endsWith('.jpg')) {
+                document.getElementById("status").textContent = "不支持此格式，请选择一个动态照片文件 (.jpg)";
+                return;
+            }
+            const stillName = filename.replace(/\.jpg$/, '_split.jpg');
+            const videoName = filename.replace(/\.jpg$/, '_split.mp4');
+
+            function indexOfSubarrayOptimized(array, subarray) {
+                const firstByte = subarray[0];
+                const subLength = subarray.length;
+
+                let startIndex = array.indexOf(firstByte);
+                while (startIndex !== -1) {
+                    if (array.subarray(startIndex, startIndex + subLength).every((value, index) => value === subarray[index])) {
+                        return startIndex;
+                    }
+                    startIndex = array.indexOf(firstByte, startIndex + 1);
+                }
+                return -1;
+            }
+
+            const reader = new FileReader();
+            reader.onload = async function () {
+                const arrayBuffer = reader.result;
+                const uint8Array = new Uint8Array(arrayBuffer);
+                const textDecoder = new TextDecoder();
+                const fileString = textDecoder.decode(uint8Array);
+                // Extract XMP metadata
+                const xmpStart = fileString.indexOf('<x:xmpmeta');
+                const xmpEnd = fileString.indexOf('</x:xmpmeta>') + 12;
+                let videoStart = -1;
+                const patternArray = new TextEncoder().encode('ftyp');
+                const ftypIndex = indexOfSubarrayOptimized(uint8Array, patternArray) - 4;
+                const skipXMP = false;
+                if (xmpStart === -1 || xmpEnd === -1 || skipXMP) {
+                    if (ftypIndex > 0) {
+                        console.log("ftyp 视频文件头:" + ftypIndex);
+                        videoStart = ftypIndex;
+                    } else {
+                        document.getElementById("status").textContent = "不存在内嵌视频。";
+                        return;
+                    }
+                } else {
+                    const xmpString = fileString.slice(xmpStart, xmpEnd);
+                    console.log(xmpString);
+                    document.getElementById("xmpInfo").textContent = xmpString;
+                    const matches = xmpString.matchAll(/<Container:Item[^>]*\bItem:Mime=["']video\/mp4["'][^>]*\bItem:Length=["'](\d+)["'][^>]*\/>/g);
+                    const matches_alt = xmpString.matchAll(/GCamera:MicroVideoOffset=["'](\d+)["']/g);
+                    let videoLength = null;
+
+                    for (const match of matches) {
+                        videoLength = parseInt(match[1], 10); // 提取视频长度
+                    }
+                    for (const match of matches_alt) {
+                        videoLength = parseInt(match[1], 10); // 提取视频长度 MicroVideo
+                    }
+
+                    // 检查是否成功匹配
+                    if (videoLength !== null) {
+                        console.log("视频定位 (从文件尾反向查找):", videoLength);
+                        videoStart = arrayBuffer.byteLength - videoLength;
+                        if (videoStart !== ftypIndex) {
+                            if (ftypIndex > 0) {
+                                console.log("发现不一致的视频定位信息:");
+                                console.log("ftyp 视频文件头:" + ftypIndex);
+                            } else {
+                                console.error("存在XMP视频信息但视频文件头检测异常。");
+                            }
+                        }
+                    } else {
+                        console.error("XMP标签中不存在视频定位信息。");
+                        document.getElementById("status").textContent = "不是动态照片。";
+                        return;
+                    }
+
+
+                }
+
+
+                if (videoStart < 0 || videoStart > arrayBuffer.byteLength) {
+                    document.getElementById("status").textContent = "找不到内嵌的视频。";
+                    return;
+                }
+                console.log("计算的文件头位置:" + videoStart);
+
+                const mp4Data = uint8Array.slice(videoStart);
+                const blob = new Blob([mp4Data], { type: "video/mp4" });
+                const url = URL.createObjectURL(blob);
+
+                const video = document.getElementById("videoPreview");
+                video.src = url;
+                video.style.display = "block";
+                document.getElementById("videoTip").style.display = "block";
+                document.getElementById("status").textContent = "成功解析动态照片!";
+
+                const jpegData = uint8Array.slice(0, videoStart);
+                const imageBlob = new Blob([jpegData], { type: "image/jpeg" });
+                const imageUrl = URL.createObjectURL(imageBlob);
+
+                const downloadButton = document.getElementById("downloadImage");
+                downloadButton.href = imageUrl;
+                downloadButton.download = stillName;
+                downloadButton.style.display = "inline-block";
+
+                const downloadVideoButton = document.getElementById("downloadVideo");
+                downloadVideoButton.href = url;
+                downloadVideoButton.download = videoName;
+                downloadVideoButton.style.display = "inline-block";
+            };
+
+            reader.readAsArrayBuffer(file);
+            document.getElementById("fileInput").value = "";
+        });
+    </script>
+</body>
+
+</html>
