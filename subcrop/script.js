@@ -122,6 +122,7 @@ window.durT = [];
 window.newmark = [];
 window.manual = false;
 window.undo = [];
+window.bookmarks = '{"bookmarks":[]}';
 
 const StringToColor = (function(){
     var instance = null;
